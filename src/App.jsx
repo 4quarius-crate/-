@@ -441,20 +441,9 @@ function KojiDetail({ koji, contractors, tasks, schedules, onBack, onEditKoji, o
         <div>
           <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
             <Btn variant="ghost" onClick={onAddSched} style={{ flex: 1, padding: "10px", borderStyle: "dashed" }}>＋ 予定を追加</Btn>
-            {kojiSchedules.length > 0 && (
-              <Btn variant="green" onClick={() => exportICS(kojiSchedules, koji.name)} style={{ padding: "10px 14px", fontSize: "12px" }}>
-                📅 .ics書き出し
-              </Btn>
-            )}
+
           </div>
           {kojiSchedules.length === 0 && <div style={{ textAlign: "center", color: C.muted, padding: "32px", fontSize: "13px" }}>工程予定がありません</div>}
-
-          {/* ICS 説明 */}
-          {kojiSchedules.length > 0 && (
-            <div style={{ background: "#0a1a0a", border: "1px solid #22c55e33", borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: "#4ade80" }}>
-              💡 工事・スケジュールの変更は2秒後に自動でGistに同期されます。iOSカレンダー照会で自動反映。
-            </div>
-          )}
 
           {kojiSchedules.map((s, i) => {
             const isToday = s.date === today();
