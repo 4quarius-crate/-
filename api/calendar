@@ -1,0 +1,105 @@
+// api/calendar.ics.js
+// Vercel Serverless Function
+// GistからスケジュールJSONを取得し .ics 形式で返す
+// iOSカレンダー照会URL: https://あなたのアプリ.vercel.app/api/calendar.ics
+
+const GIST_ID = process.env.GIST_ID || "YOUR_GIST_ID";
+const GIST_FILENAME = "koji-schedules.json";
+
+export default async function handler(req, res) {
+  try {
+    const gistRes = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+      headers: { "User-Agent": "koji-calendar" },
+    });
+
+    if (!gistRes.ok) {
+      return res.status(502).send("Gist取得失敗: " + gistRes.status);
+    }
+
+    const gist = await gistRes.json();
+    const raw = gist.files?.[GIST_FILENAME]?.content;
+
+    if (!raw) {
+      return res.status(404).send("Gistにファイルが見つかりません: " + GIST_FILENAME);
+    }
+
+    const data = JSON.parse(raw);
+    const kojis = data.kojis || [];
+    const schedules = data.schedules || [];
+
+    // 工事名マップ
+    const kojiMap = {};
+    kojis.forEach(k => { kojiMap[k.id] = k.name; });
+
+    const now = fmtDT(new Date());
+
+    const events = schedules.map(s => {
+      const kojiName = kojiMap[s.kojiId] || "";
+      const summary = kojiName ? `${s.title}（${kojiName}）` : s.title;
+      // UIDは固定（同じIDなら同じUID → iOSが更新として認識）
+      const uid = `koji-${s.id}@kojimanager`;
+      const dtStart = toLocal(s.date, s.startTime);
+      const dtEnd = toLocal(s.date, s.endTime || s.startTime);
+
+      return [
+        "BEGIN:VEVENT",
+        `UID:${uid}`,
+        `DTSTAMP:${now}`,
+        `DTSTART;TZID=Asia/Tokyo:${dtStart}`,
+        `DTEND;TZID=Asia/Tokyo:${dtEnd}`,
+        `SUMMARY:${esc(summary)}`,
+        s.memo ? `DESCRIPTION:${esc(s.memo)}` : "",
+        "END:VEVENT",
+      ].filter(Boolean).join("\r\n");
+    });
+
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//施工管理アプリ//JP",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "X-WR-CALNAME:施工管理",
+      "X-WR-TIMEZONE:Asia/Tokyo",
+      // VTIMEZONE for Asia/Tokyo
+      "BEGIN:VTIMEZONE",
+      "TZID:Asia/Tokyo",
+      "BEGIN:STANDARD",
+      "DTSTART:19700101T000000",
+      "TZOFFSETFROM:+0900",
+      "TZOFFSETTO:+0900",
+      "TZNAME:JST",
+      "END:STANDARD",
+      "END:VTIMEZONE",
+      ...events,
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", 'inline; filename="koji-calendar.ics"');
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.status(200).send(ics);
+
+  } catch (e) {
+    console.error(e);
+    return res.status(500).send("内部エラー: " + e.message);
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
+
+function fmtDT(d) {
+  return d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+}
+
+function toLocal(dateStr, timeStr) {
+  if (!dateStr) return "";
+  const d = dateStr.replace(/-/g, "");
+  const t = (timeStr || "00:00").replace(/:/g, "") + "00";
+  return d + "T" + t;
+}
+
+function esc(str) {
+  if (!str) return "";
+  return str.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
