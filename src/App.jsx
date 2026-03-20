@@ -19,6 +19,8 @@ const TASK_STATUS_STYLE = {
 };
 const PRIORITY_COLOR = { "高": "#ef4444", "中": "#f59e0b", "低": "#64748b" };
 
+const GIST_SETTINGS_KEY = "koji_gist_settings";
+
 const C = {
   bg: "#060a0f", card: "#0c1117", border: "#1a2332",
   text: "#e2e8f0", muted: "#4a5568", accent: "#f59e0b", accent2: "#0ea5e9",
@@ -35,6 +37,44 @@ function loadData(key) {
 }
 function saveData(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+
+// ─── Gist Sync ───────────────────────────────────────────────
+function loadGistSettings() {
+  try { return JSON.parse(localStorage.getItem(GIST_SETTINGS_KEY)) || {}; } catch { return {}; }
+}
+function saveGistSettings(settings) {
+  localStorage.setItem(GIST_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+async function syncToGist(kojis, schedules) {
+  const { token, gistId } = loadGistSettings();
+  if (!token || !gistId) throw new Error("Gist設定が未入力です");
+
+  const payload = {
+    updatedAt: new Date().toISOString(),
+    kojis: kojis.map(k => ({
+      id: k.id, name: k.name, start: k.start, end: k.end, status: k.status,
+    })),
+    schedules: schedules.map(s => ({
+      id: s.id, kojiId: s.kojiId, title: s.title,
+      date: s.date, startTime: s.startTime, endTime: s.endTime, memo: s.memo || "",
+    })),
+  };
+
+  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `token ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      files: { "koji-schedules.json": { content: JSON.stringify(payload, null, 2) } },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Gist更新失敗: ${res.status}`);
+  return await res.json();
 }
 
 // ─── ICS Export ───────────────────────────────────────────────
@@ -403,7 +443,7 @@ function KojiDetail({ koji, contractors, tasks, schedules, onBack, onEditKoji, o
             <Btn variant="ghost" onClick={onAddSched} style={{ flex: 1, padding: "10px", borderStyle: "dashed" }}>＋ 予定を追加</Btn>
             {kojiSchedules.length > 0 && (
               <Btn variant="green" onClick={() => exportICS(kojiSchedules, koji.name)} style={{ padding: "10px 14px", fontSize: "12px" }}>
-                📅 iOSカレンダーに書き出し
+                📅 .ics書き出し
               </Btn>
             )}
           </div>
@@ -412,7 +452,7 @@ function KojiDetail({ koji, contractors, tasks, schedules, onBack, onEditKoji, o
           {/* ICS 説明 */}
           {kojiSchedules.length > 0 && (
             <div style={{ background: "#0a1a0a", border: "1px solid #22c55e33", borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: "#4ade80" }}>
-              💡 「iOSカレンダーに書き出し」ボタンで .ics ファイルをダウンロード → iPhoneで開くとカレンダーに取り込めます
+              💡 「.ics書き出し」は手動取り込み用。自動同期は☁ Gist同期 → iOSカレンダー照会で実現できます
             </div>
           )}
 
@@ -632,6 +672,65 @@ function DashboardTab({ kojis, tasks, schedules, onGoKoji }) {
   );
 }
 
+// ─── Gist Settings & Sync Button ──────────────────────────────
+function GistSettings({ onClose }) {
+  const [settings, setSettings] = useState(loadGistSettings);
+  const [msg, setMsg] = useState("");
+  const save = () => {
+    saveGistSettings(settings);
+    setMsg("保存しました");
+    setTimeout(() => setMsg(""), 2000);
+  };
+  return (
+    <Modal onClose={onClose}>
+      <ModalHeader title="Gist同期設定" onClose={onClose} />
+      <Field label="GitHub Token (classic, gist権限)">
+        <Input type="password" value={settings.token || ""} onChange={e => setSettings(s => ({ ...s, token: e.target.value }))} placeholder="ghp_xxxxxxxxxxxx" />
+      </Field>
+      <Field label="Gist ID">
+        <Input value={settings.gistId || ""} onChange={e => setSettings(s => ({ ...s, gistId: e.target.value }))} placeholder="abc123def456..." />
+      </Field>
+      <div style={{ fontSize: "11px", color: C.muted, marginBottom: "12px", lineHeight: 1.6 }}>
+        ※ 事前にgist.github.comでGistを作成してください<br />
+        ※ ファイル名は何でもOK（自動で koji-schedules.json に書き込みます）
+      </div>
+      {msg && <div style={{ color: "#22c55e", fontSize: "12px", marginBottom: "8px" }}>{msg}</div>}
+      <Btn variant="primary" onClick={save} style={{ width: "100%", padding: "12px", fontSize: "14px" }}>設定を保存</Btn>
+    </Modal>
+  );
+}
+
+function SyncButton({ kojis, schedules }) {
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState(null);
+  const handleSync = async () => {
+    setSyncing(true); setResult(null);
+    try {
+      await syncToGist(kojis, schedules);
+      setResult("ok");
+    } catch (e) {
+      console.error(e);
+      setResult("err");
+    }
+    setSyncing(false);
+    setTimeout(() => setResult(null), 3000);
+  };
+  const { token, gistId } = loadGistSettings();
+  if (!token || !gistId) return null;
+  return (
+    <button onClick={handleSync} disabled={syncing} style={{
+      background: result === "ok" ? "#16a34a22" : result === "err" ? "#ef444422" : "#1a2332",
+      border: `1px solid ${result === "ok" ? "#16a34a" : result === "err" ? "#ef4444" : "#2d3748"}`,
+      borderRadius: "6px", padding: "4px 10px", cursor: syncing ? "wait" : "pointer",
+      color: result === "ok" ? "#4ade80" : result === "err" ? "#ef4444" : C.muted,
+      fontSize: "11px", fontWeight: 700, fontFamily: "'Noto Sans JP', sans-serif",
+      transition: "all 0.2s", whiteSpace: "nowrap",
+    }}>
+      {syncing ? "同期中..." : result === "ok" ? "✓ 同期完了" : result === "err" ? "✗ 失敗" : "☁ 同期"}
+    </button>
+  );
+}
+
 // ─── App ───────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("dashboard");
@@ -642,6 +741,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [selectedKojiId, setSelectedKojiId] = useState(null);
   const [modal, setModal] = useState(null);
+  const [showGistSettings, setShowGistSettings] = useState(false);
 
   useEffect(() => {
     const k = loadData("kojis");
@@ -698,8 +798,12 @@ export default function App() {
           <div style={{ fontSize: "11px", fontFamily: "'Bebas Neue', sans-serif", letterSpacing: "0.15em", color: C.accent, background: C.accent + "18", padding: "4px 10px", borderRadius: "4px" }}>SITE</div>
           <div style={{ fontSize: "18px", fontWeight: 900, color: C.text, letterSpacing: "-0.02em" }}>施工管理</div>
         </>}
-        <div style={{ marginLeft: "auto", fontSize: "11px", color: C.muted, fontFamily: "'JetBrains Mono', monospace" }}>
-          {new Date().toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit", weekday: "short" })}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+          <SyncButton kojis={kojis} schedules={schedules} />
+          <button onClick={() => setShowGistSettings(true)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "16px", padding: "4px" }}>⚙</button>
+          <div style={{ fontSize: "11px", color: C.muted, fontFamily: "'JetBrains Mono', monospace" }}>
+            {new Date().toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit", weekday: "short" })}
+          </div>
         </div>
       </div>
 
@@ -741,6 +845,7 @@ export default function App() {
       {modal?.type === "contractor" && <ContractorForm initial={modal.data} onSave={saveContractor} onClose={() => setModal(null)} />}
       {modal?.type === "task" && <TaskForm initial={modal.data} contractors={selectedKoji ? contractors.filter(c => selectedKoji.contractorIds?.includes(c.id)) : contractors} onSave={saveTask} onClose={() => setModal(null)} />}
       {modal?.type === "sched" && <SchedForm initial={modal.data} onSave={saveSched} onClose={() => setModal(null)} />}
+      {showGistSettings && <GistSettings onClose={() => setShowGistSettings(false)} />}
     </div>
   );
 }
