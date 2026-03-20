@@ -702,7 +702,7 @@ function GistSettings({ onClose }) {
 
 function SyncButton({ kojis, schedules }) {
   const [syncing, setSyncing] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState("auto");
   const handleSync = async () => {
     setSyncing(true); setResult(null);
     try {
@@ -713,7 +713,7 @@ function SyncButton({ kojis, schedules }) {
       setResult("err");
     }
     setSyncing(false);
-    setTimeout(() => setResult(null), 3000);
+    setTimeout(() => setResult("auto"), 3000);
   };
   const { token, gistId } = loadGistSettings();
   if (!token || !gistId) return null;
@@ -759,6 +759,16 @@ export default function App() {
   useEffect(() => { if (loaded) saveData("contractors", contractors); }, [contractors, loaded]);
   useEffect(() => { if (loaded) saveData("tasks", tasks); }, [tasks, loaded]);
   useEffect(() => { if (loaded) saveData("schedules", schedules); }, [schedules, loaded]);
+  // ─── 自動Gist同期（データ変更の2秒後に自動実行）───
+  useEffect(() => {
+    if (!loaded) return;
+    const { token, gistId } = loadGistSettings();
+    if (!token || !gistId) return;
+    const timer = setTimeout(() => {
+      syncToGist(kojis, schedules).catch(e => console.error("Auto sync failed:", e));
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [kojis, schedules, loaded]);
 
   const saveKoji = f => { if (f.id) setKojis(ks => ks.map(k => k.id === f.id ? f : k)); else setKojis(ks => [...ks, { ...f, id: Date.now() }]); setModal(null); };
   const saveContractor = f => { if (f.id) setContractors(cs => cs.map(c => c.id === f.id ? f : c)); else setContractors(cs => [...cs, { ...f, id: Date.now() }]); setModal(null); };
