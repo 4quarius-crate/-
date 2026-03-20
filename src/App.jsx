@@ -452,7 +452,7 @@ function KojiDetail({ koji, contractors, tasks, schedules, onBack, onEditKoji, o
           {/* ICS 説明 */}
           {kojiSchedules.length > 0 && (
             <div style={{ background: "#0a1a0a", border: "1px solid #22c55e33", borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: "#4ade80" }}>
-              💡 「.ics書き出し」は手動取り込み用。自動同期は☁ Gist同期 → iOSカレンダー照会で実現できます
+              💡 工事・スケジュールの変更は2秒後に自動でGistに同期されます。iOSカレンダー照会で自動反映。
             </div>
           )}
 
@@ -718,15 +718,15 @@ function SyncButton({ kojis, schedules }) {
   const { token, gistId } = loadGistSettings();
   if (!token || !gistId) return null;
   return (
-    <button onClick={handleSync} disabled={syncing} style={{
-      background: result === "ok" ? "#16a34a22" : result === "err" ? "#ef444422" : "#1a2332",
-      border: `1px solid ${result === "ok" ? "#16a34a" : result === "err" ? "#ef4444" : "#2d3748"}`,
+    <button onClick={handleSync} disabled={syncing} title="自動同期ON（タップで手動同期）" style={{
+      background: result === "ok" ? "#16a34a22" : result === "err" ? "#ef444422" : "#0ea5e911",
+      border: `1px solid ${result === "ok" ? "#16a34a" : result === "err" ? "#ef4444" : "#0ea5e933"}`,
       borderRadius: "6px", padding: "4px 10px", cursor: syncing ? "wait" : "pointer",
-      color: result === "ok" ? "#4ade80" : result === "err" ? "#ef4444" : C.muted,
+      color: result === "ok" ? "#4ade80" : result === "err" ? "#ef4444" : "#0ea5e9",
       fontSize: "11px", fontWeight: 700, fontFamily: "'Noto Sans JP', sans-serif",
       transition: "all 0.2s", whiteSpace: "nowrap",
     }}>
-      {syncing ? "同期中..." : result === "ok" ? "✓ 同期完了" : result === "err" ? "✗ 失敗" : "☁ 同期"}
+      {syncing ? "同期中..." : result === "ok" ? "✓ 同期完了" : result === "err" ? "✗ 失敗" : "☁ 自動同期"}
     </button>
   );
 }
@@ -759,6 +759,7 @@ export default function App() {
   useEffect(() => { if (loaded) saveData("contractors", contractors); }, [contractors, loaded]);
   useEffect(() => { if (loaded) saveData("tasks", tasks); }, [tasks, loaded]);
   useEffect(() => { if (loaded) saveData("schedules", schedules); }, [schedules, loaded]);
+
   // ─── 自動Gist同期（データ変更の2秒後に自動実行）───
   useEffect(() => {
     if (!loaded) return;
